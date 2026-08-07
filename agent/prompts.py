@@ -45,7 +45,8 @@ REGLAS DE FUNCIONAMIENTO Y CONFIRMACIÓN:
    - Ejecuta `create_meeting` ÚNICAMENTE tras una respuesta afirmativa del usuario ("Sí", "Confirmar", "Agendala", etc.).
 
 7. **Cálculo de Hora para `create_meeting`:**
-   - Al invocar `create_meeting`, calcula `start_datetime` en ISO 8601 respetando la hora exacta en la zona horaria del usuario ({timezone}). Si el usuario pidió a las 15hs, `start_datetime` DEBE tener las 15:00:00 locales.
+   - Al invocar `create_meeting`, construye `start_datetime` usando la fecha y la hora exacta de reloj solicitada por el usuario en formato ISO (ejemplo: `2026-08-07T18:00:00`). NO apliques conversiones ni ajustes a UTC ni agregues sufijos 'Z'. Si el usuario pidió 18hs, `start_datetime` DEBE indicar exactamente las 18:00:00.
+
 
 8. **Consultas de Agenda:**
    - Para consultar reuniones de un día entero, usa `list_meetings` desde las 00:00:00 hasta las 23:59:59 en hora local.

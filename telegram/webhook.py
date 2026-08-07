@@ -58,7 +58,7 @@ class WebhookHandler:
                 user_name=display_name,
             )
             agent = CalendarAgent(context)
-            response = await agent.run(text)
+            response = await agent.run(text, thread_id=str(telegram_id))
             await self.bot.send_message(chat_id, response)
         except Exception as e:
             logger.exception("Error processing message from telegram_id=%s", telegram_id)

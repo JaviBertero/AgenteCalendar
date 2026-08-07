@@ -53,12 +53,25 @@ def _format_dt(dt: datetime, tz_name: str) -> str:
 
 
 def _parse_local_datetime(dt_str: str, tz_name: str) -> datetime:
-    """Parsea una cadena ISO respetando la hora local especificada en la zona horaria del usuario."""
+    """
+    Parsea una cadena ISO y fija los componentes de la hora de reloj (wall-clock) directamente en la zona horaria del usuario.
+    Previene que si el LLM envía 'Z' u offsets UTC, la hora requerida (ej. 18:00) sufra desfasajes.
+    """
     tz = ZoneInfo(tz_name)
-    dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-    if dt.tzinfo is not None:
-        return dt.astimezone(tz)
-    return dt.replace(tzinfo=tz)
+    clean_iso = dt_str.replace("Z", "").split("+")[0]
+    if len(clean_iso.split("T")) > 1:
+        time_part = clean_iso.split("T")[1]
+        if "-" in time_part:
+            time_clean = time_part.split("-")[0]
+            clean_iso = clean_iso.split("T")[0] + "T" + time_clean
+
+    dt = datetime.fromisoformat(clean_iso)
+    return datetime(
+        dt.year, dt.month, dt.day,
+        dt.hour, dt.minute, dt.second,
+        tzinfo=tz
+    )
+
 
 
 
@@ -93,18 +106,24 @@ class CreateMeetingTool(BaseAgentTool):
         end = start + timedelta(minutes=args.duration_minutes)
 
         from database.validators import verify_email_domain_exists
-        if args.attendee_email:
-            valid = await verify_email_domain_exists(args.attendee_email)
-            if not valid:
-                args.attendee_email = None
-
-        attendees = [args.attendee_email] if args.attendee_email else []
-
 
         async def op(client: GoogleCalendarClient, session: AsyncSession, user: User) -> str:
-            if args.attendee_email:
-                contact_repo = ContactRepository(session)
-                await contact_repo.save_or_update(user.id, args.attendee_name, args.attendee_email)
+            contact_repo = ContactRepository(session)
+            email_to_use = args.attendee_email
+
+            # 1. Si no se especificó attendee_email en la llamada pero se proporcionó un nombre, buscar en la BD de contactos
+            if not email_to_use and args.attendee_name:
+                contact = await contact_repo.get_by_name(user.id, args.attendee_name)
+                if contact:
+                    email_to_use = contact.email
+
+            # 2. Validar que el correo exista antes de agregarlo a la lista de invitados
+            attendees = []
+            if email_to_use:
+                valid = await verify_email_domain_exists(email_to_use)
+                if valid:
+                    attendees = [email_to_use]
+                    await contact_repo.save_or_update(user.id, args.attendee_name, email_to_use)
 
             event = client.create_event(
                 CreateEventRequest(
@@ -116,7 +135,7 @@ class CreateMeetingTool(BaseAgentTool):
                 )
             )
 
-            invite_info = f" (Invitación enviada a {args.attendee_email})" if args.attendee_email else ""
+            invite_info = f" (Invitación enviada a {attendees[0]})" if attendees else " (Sin envío de invitación por correo)"
             return (
                 f"Reunión creada: '{event.summary}' "
                 f"el {_format_dt(event.start, context.timezone)} "
@@ -124,6 +143,7 @@ class CreateMeetingTool(BaseAgentTool):
             )
 
         return await _run_with_calendar(context, op)
+
 
 
 class ListMeetingsArgs(BaseModel):
