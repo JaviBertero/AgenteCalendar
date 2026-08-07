@@ -1,5 +1,6 @@
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 try:
@@ -12,6 +13,9 @@ from agent.state import get_current_datetime_context
 from config.settings import settings
 from tools.base import ToolContext
 from tools.registry import get_tool_instances
+
+# Instancia compartida en memoria para persistir el historial por thread_id (telegram_id)
+shared_checkpointer = MemorySaver()
 
 
 class CalendarAgent:
@@ -53,9 +57,6 @@ class CalendarAgent:
         self.tools = get_tool_instances(context)
         self._agent = self._build_agent()
 
-
-
-
     def _build_agent(self):
         current_dt = get_current_datetime_context(self.context.timezone)
         system_message = SYSTEM_PROMPT.format(
@@ -68,10 +69,15 @@ class CalendarAgent:
             model=self.llm,
             tools=self.tools,
             prompt=SystemMessage(content=system_message),
+            checkpointer=shared_checkpointer,
         )
 
-    async def run(self, user_message: str) -> str:
+    async def run(self, user_message: str, thread_id: str | None = None) -> str:
+        config = {}
+        if thread_id:
+            config["configurable"] = {"thread_id": thread_id}
         result = await self._agent.ainvoke(
-            {"messages": [HumanMessage(content=user_message)]}
+            {"messages": [HumanMessage(content=user_message)]},
+            config=config if config else None,
         )
         return result["messages"][-1].content
