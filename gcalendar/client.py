@@ -89,9 +89,15 @@ class GoogleCalendarClient:
 
         created = (
             service.events()
-            .insert(calendarId=self.CALENDAR_ID, body=body, sendUpdates="all")
+            .insert(
+                calendarId=self.CALENDAR_ID,
+                body=body,
+                sendUpdates="all",
+                sendNotifications=True,
+            )
             .execute()
         )
+
         return self._parse_event(created)
 
     def update_event(self, event_id: str, request: UpdateEventRequest) -> CalendarEvent:

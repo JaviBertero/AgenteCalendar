@@ -81,3 +81,4 @@ class CalendarAgent:
             config=config if config else None,
         )
         return result["messages"][-1].content
+

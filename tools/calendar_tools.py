@@ -53,12 +53,25 @@ def _format_dt(dt: datetime, tz_name: str) -> str:
 
 
 def _parse_local_datetime(dt_str: str, tz_name: str) -> datetime:
-    """Parsea una cadena ISO respetando la hora local especificada en la zona horaria del usuario."""
+    """
+    Parsea una cadena ISO y fija los componentes de la hora de reloj (wall-clock) directamente en la zona horaria del usuario.
+    Previene que si el LLM envía 'Z' u offsets UTC, la hora requerida (ej. 18:00) sufra desfasajes.
+    """
     tz = ZoneInfo(tz_name)
-    dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-    if dt.tzinfo is not None:
-        return dt.astimezone(tz)
-    return dt.replace(tzinfo=tz)
+    clean_iso = dt_str.replace("Z", "").split("+")[0]
+    if len(clean_iso.split("T")) > 1:
+        time_part = clean_iso.split("T")[1]
+        if "-" in time_part:
+            time_clean = time_part.split("-")[0]
+            clean_iso = clean_iso.split("T")[0] + "T" + time_clean
+
+    dt = datetime.fromisoformat(clean_iso)
+    return datetime(
+        dt.year, dt.month, dt.day,
+        dt.hour, dt.minute, dt.second,
+        tzinfo=tz
+    )
+
 
 
 
@@ -124,6 +137,7 @@ class CreateMeetingTool(BaseAgentTool):
             )
 
         return await _run_with_calendar(context, op)
+
 
 
 class ListMeetingsArgs(BaseModel):
