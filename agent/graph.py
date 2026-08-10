@@ -17,6 +17,9 @@ from tools.registry import get_tool_instances
 # Instancia compartida en memoria para persistir el historial de conversación por thread_id (telegram_id)
 shared_checkpointer = MemorySaver()
 
+# Instancia compartida en memoria para persistir el historial por thread_id (telegram_id)
+shared_checkpointer = MemorySaver()
+
 
 class CalendarAgent:
     def __init__(self, context: ToolContext):
@@ -76,7 +79,6 @@ class CalendarAgent:
         config = {}
         if thread_id:
             config["configurable"] = {"thread_id": thread_id}
-
         result = await self._agent.ainvoke(
             {"messages": [HumanMessage(content=user_message)]},
             config=config if config else None,

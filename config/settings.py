@@ -41,8 +41,9 @@ class Settings(BaseSettings):
     ]
 
     def get_groq_api_keys(self) -> list[str]:
-        """Extrae todas las API keys de Groq disponibles en variables de entorno."""
+        """Extrae todas las API keys de Groq disponibles en variables de entorno o en .env."""
         import os
+        from pathlib import Path
         keys: list[str] = []
 
         # 1. groq_api_keys (lista o string separado por comas)
@@ -58,8 +59,20 @@ class Settings(BaseSettings):
                 if k_clean and k_clean not in keys:
                     keys.append(k_clean)
 
-        # 3. Variables numeradas GROQ_API_KEY_1, GROQ_API_KEY_2, etc.
-        for env_var, val in os.environ.items():
+        # 3. Variables numeradas GROQ_API_KEY_... en os.environ y .env
+        env_dict = dict(os.environ)
+        env_file = Path(".env")
+        if env_file.exists():
+            try:
+                for line in env_file.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        env_dict[k.strip()] = v.strip()
+            except Exception:
+                pass
+
+        for env_var, val in env_dict.items():
             if env_var.startswith("GROQ_API_KEY_") and val.strip():
                 clean_val = val.strip()
                 if clean_val not in keys:

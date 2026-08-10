@@ -78,9 +78,9 @@ def _parse_local_datetime(dt_str: str, tz_name: str) -> datetime:
 class CreateMeetingArgs(BaseModel):
     title: str = Field(description="Título o asunto de la reunión")
     attendee_name: str = Field(description="Nombre de la persona con quien reunirse")
-    attendee_email: str | None = Field(
-        default=None,
-        description="Dirección de correo electrónico del invitado",
+    attendee_email: str = Field(
+        default="",
+        description="Dirección de correo electrónico del invitado (opcional)",
     )
     start_datetime: str = Field(
         description="Fecha y hora de inicio en ISO 8601 local"
@@ -92,8 +92,8 @@ class CreateMeetingTool(BaseAgentTool):
     name = "create_meeting"
     description = (
         "Crea una nueva reunión en Google Calendar. "
-        "Usar ÚNICAMENTE después de que el usuario haya confirmado explícitamente los detalles de la reunión. "
-        "Si se cuenta con el email de la otra persona, pasarlo en attendee_email para que reciba la invitación y se guarde en contactos."
+        "Usar ÚNICAMENTE cuando el usuario confirme explícitamente la CREACIÓN de una nueva reunión. "
+        "NUNCA invocar esta herramienta cuando el usuario solicita o confirma cancelar o reprogramar una reunión."
     )
 
     def get_args_schema(self) -> type[BaseModel]:
@@ -106,24 +106,18 @@ class CreateMeetingTool(BaseAgentTool):
         end = start + timedelta(minutes=args.duration_minutes)
 
         from database.validators import verify_email_domain_exists
+        email = args.attendee_email.strip() if args.attendee_email else None
+        if email:
+            valid = await verify_email_domain_exists(email)
+            if not valid:
+                email = None
+
+        attendees = [email] if email else []
 
         async def op(client: GoogleCalendarClient, session: AsyncSession, user: User) -> str:
-            contact_repo = ContactRepository(session)
-            email_to_use = args.attendee_email
-
-            # 1. Si no se especificó attendee_email en la llamada pero se proporcionó un nombre, buscar en la BD de contactos
-            if not email_to_use and args.attendee_name:
-                contact = await contact_repo.get_by_name(user.id, args.attendee_name)
-                if contact:
-                    email_to_use = contact.email
-
-            # 2. Validar que el correo exista antes de agregarlo a la lista de invitados
-            attendees = []
-            if email_to_use:
-                valid = await verify_email_domain_exists(email_to_use)
-                if valid:
-                    attendees = [email_to_use]
-                    await contact_repo.save_or_update(user.id, args.attendee_name, email_to_use)
+            if email:
+                contact_repo = ContactRepository(session)
+                await contact_repo.save_or_update(user.id, args.attendee_name, email)
 
             event = client.create_event(
                 CreateEventRequest(
@@ -135,7 +129,7 @@ class CreateMeetingTool(BaseAgentTool):
                 )
             )
 
-            invite_info = f" (Invitación enviada a {attendees[0]})" if attendees else " (Sin envío de invitación por correo)"
+            invite_info = f" (Invitación enviada a {email})" if email else ""
             return (
                 f"Reunión creada: '{event.summary}' "
                 f"el {_format_dt(event.start, context.timezone)} "
@@ -148,13 +142,13 @@ class CreateMeetingTool(BaseAgentTool):
 
 class ListMeetingsArgs(BaseModel):
     start_date: str = Field(
-        description="Fecha/hora de inicio del rango en ISO 8601 (ej: 2026-08-07T00:00:00). Para todo un día, usar desde 00:00:00."
+        description="Fecha/hora de inicio del rango en ISO 8601 (ej: 2026-08-07T00:00:00)."
     )
     end_date: str = Field(
-        description="Fecha/hora de fin del rango en ISO 8601 (ej: 2026-08-07T23:59:59). Para todo un día, usar hasta 23:59:59."
+        description="Fecha/hora de fin del rango en ISO 8601 (ej: 2026-08-07T23:59:59)."
     )
-    search_query: str | None = Field(
-        default=None, description="Texto para filtrar reuniones por nombre o asistente"
+    search_query: str = Field(
+        default="", description="Texto opcional para filtrar reuniones"
     )
 
 
@@ -173,9 +167,10 @@ class ListMeetingsTool(BaseAgentTool):
 
         time_min = _parse_local_datetime(args.start_date, context.timezone)
         time_max = _parse_local_datetime(args.end_date, context.timezone)
+        query = args.search_query.strip() if args.search_query else None
 
         def op(client: GoogleCalendarClient) -> str:
-            events = client.list_events(time_min, time_max, query=args.search_query)
+            events = client.list_events(time_min, time_max, query=query)
             if not events:
                 return "No hay reuniones en ese período."
 
@@ -227,8 +222,8 @@ class FindFreeSlotsTool(BaseAgentTool):
 class RescheduleMeetingArgs(BaseModel):
     event_id: str = Field(description="ID del evento a reprogramar")
     new_start_datetime: str = Field(description="Nueva fecha/hora de inicio en ISO 8601 local")
-    new_duration_minutes: int | None = Field(
-        default=None, description="Nueva duración en minutos (opcional)"
+    new_duration_minutes: int = Field(
+        default=60, description="Nueva duración en minutos"
     )
 
 
@@ -268,7 +263,11 @@ class CancelMeetingArgs(BaseModel):
 
 class CancelMeetingTool(BaseAgentTool):
     name = "cancel_meeting"
-    description = "Cancela/elimina una reunión existente del calendario."
+    description = (
+        "Cancela y elimina una reunión existente del calendario. "
+        "Usar ÚNICAMENTE cuando el usuario confirme explícitamente la CANCELACIÓN de una reunión. "
+        "Requiere el event_id exacto obtenido previamente con list_meetings."
+    )
 
     def get_args_schema(self) -> type[BaseModel]:
         return CancelMeetingArgs
