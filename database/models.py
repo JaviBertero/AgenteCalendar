@@ -30,7 +30,7 @@ class User(Base):
 
     @property
     def has_google_auth(self) -> bool:
-        return self.google_refresh_token is not None
+        return bool(self.google_refresh_token or self.google_access_token)
 
 
 class Contact(Base):

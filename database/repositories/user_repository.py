@@ -16,6 +16,20 @@ class UserRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_email(self, email: str) -> User | None:
+        from sqlalchemy import func
+        clean_email = email.strip().lower()
+        result = await self.session.execute(
+            select(User).where(func.lower(User.email) == clean_email)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_all_registered_emails(self) -> list[str]:
+        result = await self.session.execute(
+            select(User.email).where(User.email.isnot(None))
+        )
+        return [e for e in result.scalars().all() if e]
+
     async def get_or_create(
         self,
         telegram_id: int,

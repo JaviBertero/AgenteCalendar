@@ -40,6 +40,22 @@ class Settings(BaseSettings):
         "openid",
     ]
 
+    # Google Sheets settings for tutor management
+    google_sheets_spreadsheet_id: str = ""
+    google_sheets_tab_name: str = "Tutores"
+    google_sheets_credentials_file: str = ""
+    google_sheets_service_account_json: str = ""
+    google_sheets_api_key: str = ""
+
+    # Coordinator email for reading tutor calendars
+    coordinator_email: str = ""
+
+    # Flexible column mapping for Google Sheets
+    sheets_col_name: str = "name"
+    sheets_col_status: str = "status"
+    sheets_col_email: str = "email"
+    sheets_col_working_hours: str = "working_hours"
+
     def get_groq_api_keys(self) -> list[str]:
         """Extrae todas las API keys de Groq disponibles en variables de entorno o en .env."""
         import os

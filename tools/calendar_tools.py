@@ -1,4 +1,5 @@
 import inspect
+import logging
 from datetime import datetime, timedelta
 from typing import Callable
 from zoneinfo import ZoneInfo
@@ -6,6 +7,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config.settings import settings
 from database.connection import async_session_factory
 from database.models import User
 from database.repositories.contact_repository import ContactRepository
@@ -14,10 +16,13 @@ from gcalendar.client import GoogleCalendarClient
 from gcalendar.schemas import CreateEventRequest, UpdateEventRequest
 from tools.base import BaseAgentTool, ToolContext
 
+logger = logging.getLogger(__name__)
+
 
 async def _run_with_calendar(
     context: ToolContext,
     operation: Callable[..., str],
+    prefer_coordinator: bool = False,
 ) -> str:
     session = async_session_factory()
     try:
@@ -26,7 +31,24 @@ async def _run_with_calendar(
         if not user:
             raise ValueError("Usuario no encontrado")
 
-        client = GoogleCalendarClient(user)
+        calendar_user = user
+        if prefer_coordinator and settings.coordinator_email:
+            coord_user = await repo.get_by_email(settings.coordinator_email)
+            if coord_user and coord_user.has_google_auth:
+                calendar_user = coord_user
+                logger.info(
+                    "Utilizando credenciales del Coordinador (%s) para la consulta de tutores.",
+                    settings.coordinator_email,
+                )
+            else:
+                registered_emails = await repo.get_all_registered_emails()
+                logger.warning(
+                    "COORDINATOR_EMAIL está configurado (%s), pero esa cuenta no se encontró autenticada con Google en la BD. Emails registrados en BD: %s. Se usará la cuenta del usuario actuante.",
+                    settings.coordinator_email,
+                    registered_emails,
+                )
+
+        client = GoogleCalendarClient(calendar_user)
         if inspect.iscoroutinefunction(operation):
             result = await operation(client, session, user)
         else:
@@ -34,10 +56,10 @@ async def _run_with_calendar(
 
         if client.token_refreshed:
             await repo.update_google_tokens(
-                user,
-                access_token=user.google_access_token,
+                calendar_user,
+                access_token=calendar_user.google_access_token,
                 refresh_token=None,
-                expiry=user.google_token_expiry,
+                expiry=calendar_user.google_token_expiry,
             )
         await session.commit()
         return result

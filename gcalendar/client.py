@@ -173,3 +173,59 @@ class GoogleCalendarClient:
             free_slots.append(FreeSlot(start=cursor, end=work_end))
 
         return free_slots
+
+    def check_calendar_has_conflict(
+        self,
+        calendar_email: str,
+        start_datetime: datetime,
+        end_datetime: datetime,
+    ) -> bool:
+        """
+        Verifica si existe algún conflicto o evento en el calendario especificado por `calendar_email`
+        durante el intervalo completo [start_datetime, end_datetime].
+        Devuelve True si hay conflicto (ocupado), False si está totalmente libre.
+        """
+        service = self._get_service()
+        time_min = start_datetime.isoformat()
+        time_max = end_datetime.isoformat()
+
+        # 1. Consultar freebusy API
+        try:
+            body = {
+                "timeMin": time_min,
+                "timeMax": time_max,
+                "items": [{"id": calendar_email}],
+            }
+            res = service.freebusy().query(body=body).execute()
+            calendars = res.get("calendars", {})
+            cal_data = calendars.get(calendar_email, {})
+            if "errors" not in cal_data and "busy" in cal_data:
+                busy_slots = cal_data.get("busy", [])
+                return len(busy_slots) > 0
+        except Exception:
+            # Fallback a list_events si freebusy falla o no está soportado
+            pass
+
+        # 2. Consultar events.list para el calendario especificado
+        events_result = (
+            service.events()
+            .list(
+                calendarId=calendar_email,
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+            )
+            .execute()
+        )
+
+        for item in events_result.get("items", []):
+            if item.get("status") == "cancelled" or item.get("transparency") == "transparent":
+                continue
+
+            event = self._parse_event(item)
+            # Verificar solapamiento estricto: event.start < end_datetime y event.end > start_datetime
+            if event.start < end_datetime and event.end > start_datetime:
+                return True
+
+        return False
+

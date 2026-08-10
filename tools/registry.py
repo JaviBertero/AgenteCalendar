@@ -7,6 +7,7 @@ from tools.calendar_tools import (
     RescheduleMeetingTool,
 )
 from tools.contact_tools import GetContactTool, SaveContactTool
+from tools.tutor_tools import FindAvailableTutorsTool
 
 # Register all available tools here. Add new tools to this list.
 ALL_TOOLS: list[type[BaseAgentTool]] = [
@@ -17,6 +18,7 @@ ALL_TOOLS: list[type[BaseAgentTool]] = [
     CancelMeetingTool,
     GetContactTool,
     SaveContactTool,
+    FindAvailableTutorsTool,
 ]
 
 
