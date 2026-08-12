@@ -56,27 +56,23 @@ class Settings(BaseSettings):
     sheets_col_email: str = "email"
     sheets_col_working_hours: str = "working_hours"
 
-    def get_groq_api_keys(self) -> list[str]:
-        """Extrae todas las API keys de Groq disponibles en variables de entorno o en .env."""
+    # Dynamic token limit for logging
+    token_limit: int = 100000
+
+    def get_groq_api_key_details(self) -> list[dict[str, str]]:
+        """
+        Extrae todas las API keys de Groq disponibles con sus nombres de variable (ej: GROQ_API_KEY_3).
+        Retorna lista de diccionarios con 'name' y 'key'.
+        """
         import os
+        import re
         from pathlib import Path
-        keys: list[str] = []
 
-        # 1. groq_api_keys (lista o string separado por comas)
-        if isinstance(self.groq_api_keys, list):
-            keys.extend([k.strip() for k in self.groq_api_keys if k.strip()])
-        elif isinstance(self.groq_api_keys, str) and self.groq_api_keys.strip():
-            keys.extend([k.strip() for k in self.groq_api_keys.split(",") if k.strip()])
+        details: list[dict[str, str]] = []
+        seen_keys: set[str] = set()
 
-        # 2. groq_api_key (string o separado por comas)
-        if isinstance(self.groq_api_key, str) and self.groq_api_key.strip():
-            for k in self.groq_api_key.split(","):
-                k_clean = k.strip()
-                if k_clean and k_clean not in keys:
-                    keys.append(k_clean)
+        raw_env_items: list[tuple[str, str]] = []
 
-        # 3. Variables numeradas GROQ_API_KEY_... en os.environ y .env
-        env_dict = dict(os.environ)
         env_file = Path(".env")
         if env_file.exists():
             try:
@@ -84,17 +80,62 @@ class Settings(BaseSettings):
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
                         k, v = line.split("=", 1)
-                        env_dict[k.strip()] = v.strip()
+                        raw_env_items.append((k.strip(), v.strip()))
             except Exception:
                 pass
 
-        for env_var, val in env_dict.items():
-            if env_var.startswith("GROQ_API_KEY_") and val.strip():
-                clean_val = val.strip()
-                if clean_val not in keys:
-                    keys.append(clean_val)
+        for k, v in os.environ.items():
+            raw_env_items.append((k.strip(), v.strip()))
 
-        return keys
+        groq_vars: list[tuple[str, str]] = []
+        for k, v in raw_env_items:
+            k_upper = k.upper()
+            if (
+                k_upper.startswith("GROQ_API_KEY")
+                and k_upper != "GROQ_API_KEYS"
+                and k_upper != "GROQ_MODEL"
+                and v.strip()
+            ):
+                groq_vars.append((k, v.strip()))
+
+        def sort_key(item: tuple[str, str]):
+            name = item[0]
+            numbers = re.findall(r"\d+", name)
+            if numbers:
+                return (0, int(numbers[0]))
+            return (1, name)
+
+        groq_vars.sort(key=sort_key)
+
+        for name, val in groq_vars:
+            if val not in seen_keys:
+                seen_keys.add(val)
+                details.append({"name": name, "key": val})
+
+        if isinstance(self.groq_api_keys, list):
+            extra_keys = [k.strip() for k in self.groq_api_keys if k.strip()]
+        elif isinstance(self.groq_api_keys, str) and self.groq_api_keys.strip():
+            extra_keys = [k.strip() for k in self.groq_api_keys.split(",") if k.strip()]
+        else:
+            extra_keys = []
+
+        for idx, k_val in enumerate(extra_keys, 1):
+            if k_val not in seen_keys:
+                seen_keys.add(k_val)
+                details.append({"name": f"GROQ_API_KEYS[{idx}]", "key": k_val})
+
+        if isinstance(self.groq_api_key, str) and self.groq_api_key.strip():
+            for k in self.groq_api_key.split(","):
+                k_clean = k.strip()
+                if k_clean and k_clean not in seen_keys:
+                    seen_keys.add(k_clean)
+                    details.append({"name": "GROQ_API_KEY", "key": k_clean})
+
+        return details
+
+    def get_groq_api_keys(self) -> list[str]:
+        """Extrae todas las API keys de Groq disponibles en variables de entorno o en .env."""
+        return [d["key"] for d in self.get_groq_api_key_details()]
 
 
 @lru_cache

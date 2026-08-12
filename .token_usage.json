@@ -1,0 +1,13 @@
+{
+  "total_tokens": 3786,
+  "total_prompt_tokens": 3754,
+  "total_completion_tokens": 32,
+  "key_stats": {
+    "GROQ_API_KEY_1": {
+      "total": 3786,
+      "prompt": 3754,
+      "completion": 32,
+      "calls": 1
+    }
+  }
+}

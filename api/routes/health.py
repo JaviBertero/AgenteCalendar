@@ -1,5 +1,6 @@
 import httpx
 from fastapi import APIRouter
+from agent.token_tracker import token_tracker
 from config.settings import settings
 
 router = APIRouter(tags=["health"])
@@ -12,10 +13,12 @@ async def health_check():
 
 @router.get("/test-groq-keys")
 async def test_groq_keys():
-    keys = settings.get_groq_api_keys()
+    key_details = settings.get_groq_api_key_details()
     results = []
     async with httpx.AsyncClient(timeout=10.0) as client:
-        for idx, key in enumerate(keys, 1):
+        for idx, item in enumerate(key_details, 1):
+            key_name = item["name"]
+            key = item["key"]
             masked = key[:7] + "..." + key[-4:] if len(key) > 11 else "invalid"
             try:
                 resp = await client.get(
@@ -30,6 +33,17 @@ async def test_groq_keys():
                     status = f"INVÁLIDA ({resp.status_code}) - {resp.text}"
             except Exception as e:
                 status = f"ERROR: {str(e)}"
-            results.append({"key_num": idx, "key_masked": masked, "status": status})
-    return {"total_keys": len(keys), "results": results}
+            results.append({
+                "key_num": idx,
+                "key_name": key_name,
+                "key_masked": masked,
+                "status": status,
+            })
+    return {"total_keys": len(key_details), "results": results}
+
+
+@router.get("/token-usage")
+async def get_token_usage():
+    return token_tracker.get_summary()
+
 
